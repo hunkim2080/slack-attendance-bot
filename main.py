@@ -448,17 +448,20 @@ def handle_material_quantity_submit(ack, body, client):
     user_info = sheets_handler.get_user_info(body["user"]["id"])
     if user_info:
         user_name = user_info["name"]
-    
+
+    # 현장 주소 가져오기
+    site_address = _get_today_site_address()
+
     # 스프레드시트에 기록
-    success, message = sheets_handler.record_material_usage(user_name, room, color, quantity)
-    
+    success, message = sheets_handler.record_material_usage(user_name, room, color, quantity, site_address)
+
     if not success:
         client.chat_postMessage(
             channel=user_id,
             text=f"❌ 자재사용대장 기록 실패: {message}",
         )
         return
-    
+
     # 다음 방으로 이동
     next_room_index = room_index + 1
     completed_rooms = selected_rooms[:next_room_index]
@@ -2548,8 +2551,11 @@ def handle_save_material_usage(ack, body, client, logger):
         if user_info:
             user_name = user_info["name"]
 
+        # 현장 주소 가져오기
+        site_address = _get_today_site_address()
+
         # 시트 기록
-        success, message = sheets_handler.record_material_usage(user_name, room, color, quantity)
+        success, message = sheets_handler.record_material_usage(user_name, room, color, quantity, site_address)
         if not success:
             client.chat_postEphemeral(
                 channel=channel_id,

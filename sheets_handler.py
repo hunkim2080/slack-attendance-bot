@@ -974,15 +974,16 @@ def calculate_all_payrolls(year, month):
 # ----------------------------------------------------
 # 16. 자재 사용 기록
 # ----------------------------------------------------
-def record_material_usage(user_name: str, room: str, color: str, quantity: float):
+def record_material_usage(user_name: str, room: str, color: str, quantity: float, site_address: str = ""):
     """자재 사용량을 MaterialLog 시트에 기록.
-    
+
     Args:
         user_name: 사용자 한글 이름
         room: 방 이름
         color: 색상 코드
         quantity: 사용량
-    
+        site_address: 현장 주소 (선택, 기본값 "")
+
     Returns:
         (success: bool, message: str)
     """
@@ -996,12 +997,13 @@ def record_material_usage(user_name: str, room: str, color: str, quantity: float
                     user_name,                             # 이름
                     room,                                  # 방 이름
                     color,                                 # 색상 코드
-                    quantity                               # 사용량
+                    quantity,                              # 사용량
+                    site_address                           # 현장 주소
                 ]]
             }
             request = service.spreadsheets().values().append(
                 spreadsheetId=SPREADSHEET_KEY,
-                range="MaterialLog!A:E",
+                range="MaterialLog!A:F",
                 valueInputOption="USER_ENTERED",
                 insertDataOption="INSERT_ROWS",
                 body=body
