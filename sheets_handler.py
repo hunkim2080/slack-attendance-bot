@@ -1179,7 +1179,7 @@ def create_site_photo_folder(site_address: str):
             # 부모 폴더 ID (환경 변수에서 가져오거나 하드코딩)
             parent_folder_id = os.environ.get("GOOGLE_DRIVE_PARENT_FOLDER_ID", "")
             if not parent_folder_id:
-                return None, "GOOGLE_DRIVE_PARENT_FOLDER_ID 환경 변수가 설정되지 않았습니다.", ""
+                return None, "GOOGLE_DRIVE_PARENT_FOLDER_ID 환경 변수가 설정되지 않았습니다."
             
             # 폴더 생성
             file_metadata = {
