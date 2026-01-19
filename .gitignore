@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# 환경 변수 및 민감한 정보
+.env
+*.env
+.env.*
+client_secret.json
+service-account-key.json
+credentials/
+*.key
+*.pem
+env.yaml
+
+# 로그
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 임시 파일
+tmp/
+temp/
+*.tmp
+
+# Cursor/Claude 임시 파일
+tmpclaude-*-cwd
