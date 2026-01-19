@@ -13,13 +13,30 @@ logging.basicConfig(level=logging.INFO)
 
 # main.py를 import하여 Slack 앱 초기화
 # main.py에서 tasks_v2와 functions_framework는 선택적으로 처리됨
+handler = None
 try:
+    logging.info("Attempting to import main.py...")
     import main
+    logging.info("main.py imported successfully")
+    
     # main.py의 handler를 사용
-    handler = main.handler
-    logging.info("Successfully imported main.py and handler")
+    if hasattr(main, 'handler'):
+        handler = main.handler
+        if handler is None:
+            logging.error("main.handler exists but is None")
+        else:
+            logging.info("Successfully imported main.py and handler")
+    else:
+        logging.error("main.py imported but 'handler' attribute not found")
+        logging.error(f"Available attributes in main: {dir(main)[:20]}")
+except ImportError as e:
+    logging.error(f"ImportError when importing main.py: {e}", exc_info=True)
+    handler = None
+except SyntaxError as e:
+    logging.error(f"SyntaxError in main.py: {e}", exc_info=True)
+    handler = None
 except Exception as e:
-    logging.error(f"Failed to import main.py: {e}")
+    logging.error(f"Unexpected error when importing main.py: {type(e).__name__}: {e}", exc_info=True)
     handler = None
 
 @app.route('/', methods=['GET'])
@@ -115,17 +132,11 @@ def tmap_redirect():
     """)
     return Response(html, mimetype='text/html; charset=utf-8')
 
-# main.py를 import하여 모든 핸들러 등록
-# 이렇게 하면 main.py의 @slack_app.command, @slack_app.action 등이 자동으로 등록됨
-try:
-    # main.py를 import (하지만 functions_framework 부분은 실행되지 않음)
-    import main
-    # main.py의 slack_app을 사용하도록 설정
-    # 하지만 이미 위에서 handler.handle()을 사용하므로 자동으로 작동함
-except Exception as e:
-    import logging
-    logging.warning(f"Could not fully import main.py: {e}")
-    logging.info("Some features may not work. Using worker_main only.")
+# main.py는 이미 위에서 import했으므로 여기서는 중복 import 제거
+# handler가 None이면 에러 로깅
+if handler is None:
+    logging.error("CRITICAL: Handler is None. Slack events will fail!")
+    logging.error("Please check the logs above for import errors.")
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
