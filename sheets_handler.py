@@ -1192,10 +1192,28 @@ def create_site_photo_folder(site_address: str):
                 body=file_metadata,
                 fields="id, name, webViewLink"
             ).execute()
-            
+
             folder_id = folder.get("id")
             folder_url = folder.get("webViewLink", f"https://drive.google.com/drive/folders/{folder_id}")
-            
+
+            # 하위 폴더 6개 자동 생성
+            subfolder_names = [
+                "1.시공전(1)",
+                "2.시공전(2)",
+                "3.시공중간(1)",
+                "4.시공중간(2)",
+                "5.시공후(1)",
+                "6.시공후(2)"
+            ]
+
+            for subfolder_name in subfolder_names:
+                subfolder_metadata = {
+                    "name": subfolder_name,
+                    "mimeType": "application/vnd.google-apps.folder",
+                    "parents": [folder_id]
+                }
+                service.files().create(body=subfolder_metadata, fields="id").execute()
+
             return folder_id, folder_url
         
         folder_id, folder_url = execute_with_retry(_task)
