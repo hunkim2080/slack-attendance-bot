@@ -88,7 +88,9 @@ def _get_weather_forecast(site_address: str = None):
     if not WEATHER_API_KEY:
         logging.warning("WEATHER_API_KEY가 설정되지 않았습니다.")
         return None, None, None
-    
+
+    logging.info(f"날씨 API 호출 시작 - 주소: {site_address}")
+
     try:
         # KST 시간 기준
         kst = datetime.now(KST)
@@ -141,17 +143,22 @@ def _get_weather_forecast(site_address: str = None):
         }
         
         response = requests.get(api_url, params=params, timeout=10)
+        logging.info(f"날씨 API 응답 상태: {response.status_code}")
         response.raise_for_status()
-        
+
         data = response.json()
-        
+
         # 응답 확인
-        if data.get("response", {}).get("header", {}).get("resultCode") != "00":
-            error_msg = data.get("response", {}).get("header", {}).get("resultMsg", "알 수 없는 오류")
-            logging.warning(f"날씨 API 오류: {error_msg}")
+        result_code = data.get("response", {}).get("header", {}).get("resultCode")
+        result_msg = data.get("response", {}).get("header", {}).get("resultMsg", "")
+        logging.info(f"날씨 API 결과 코드: {result_code} - {result_msg}")
+
+        if result_code != "00":
+            logging.warning(f"날씨 API 오류: {result_msg}")
             return None, None, None
         
         items = data.get("response", {}).get("body", {}).get("items", {}).get("item", [])
+        logging.info(f"날씨 API 데이터 개수: {len(items) if items else 0}")
         if not items:
             logging.warning("날씨 데이터가 없습니다.")
             return None, None, None
@@ -189,12 +196,14 @@ def _get_weather_forecast(site_address: str = None):
                         pass
         
         # 오후 시간대의 평균 강수확률 계산 (또는 최대값 사용)
+        logging.info(f"날씨 데이터 필터링 결과 - POP 개수: {len(pop_values)}, PTY 개수: {len(pty_values)}")
         if pop_values:
             avg_pop = sum(pop_values) // len(pop_values)
             max_pop = max(pop_values)
             # 최대값과 평균 중 더 큰 값 사용 (보수적으로)
             pop = max(avg_pop, max_pop)
         else:
+            logging.warning(f"오후 12~18시 강수확률 데이터 없음 (forecast_date: {forecast_date})")
             pop = None
         
         # 강수형태 확인 (비가 있는지)
@@ -206,7 +215,8 @@ def _get_weather_forecast(site_address: str = None):
                     pty = "비"
                 elif any("눈" in p for p in pty_values):
                     pty = "눈"
-        
+
+        logging.info(f"날씨 조회 완료 - 강수확률: {pop}%, 강수형태: {pty}")
         return pop, pty, None
         
     except requests.exceptions.RequestException as e:
