@@ -157,6 +157,256 @@ def _get_today_site_address():
         return site_address
 
 
+def _get_week_schedule():
+    """이번 주(월~일)의 Google Calendar 일정을 조회합니다.
+
+    Returns:
+        list: 일정 리스트. 각 일정은 dict 형태:
+            {
+                "date": "2026-01-20",
+                "day_name": "월",
+                "title": "일정 제목",
+                "location": "현장 주소",
+                "start_time": "09:00",
+                "end_time": "18:00",
+                "is_all_day": False
+            }
+    """
+    google_calendar_id = os.environ.get("GOOGLE_CALENDAR_ID", "")
+
+    if not google_calendar_id:
+        logging.warning("GOOGLE_CALENDAR_ID not set for schedule")
+        return []
+
+    try:
+        json_str = os.environ.get("GCF_CREDENTIALS")
+        if not json_str:
+            logging.warning("GCF_CREDENTIALS not set for schedule")
+            return []
+
+        credentials_dict = json.loads(json_str)
+        creds = service_account.Credentials.from_service_account_info(
+            credentials_dict,
+            scopes=["https://www.googleapis.com/auth/calendar.readonly"]
+        )
+
+        service = build("calendar", "v3", credentials=creds, cache_discovery=False)
+
+        # 이번 주의 시작(월요일)과 끝(일요일) 계산
+        now = datetime.now(sheets_handler.KST)
+        current_weekday = now.weekday()  # 0=월요일, 6=일요일
+
+        monday = now - timedelta(days=current_weekday)
+        start_of_week = monday.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        sunday = monday + timedelta(days=6)
+        end_of_week = sunday.replace(hour=23, minute=59, second=59, microsecond=0)
+
+        time_min = start_of_week.isoformat()
+        time_max = end_of_week.isoformat()
+
+        events_result = (
+            service.events()
+            .list(
+                calendarId=google_calendar_id,
+                timeMin=time_min,
+                timeMax=time_max,
+                singleEvents=True,
+                orderBy="startTime",
+            )
+            .execute()
+        )
+
+        events = events_result.get("items", [])
+
+        schedule_list = []
+        day_names = ["월", "화", "수", "목", "금", "토", "일"]
+
+        for event in events:
+            start = event.get("start", {})
+            end = event.get("end", {})
+
+            if "date" in start:
+                # 종일 일정
+                event_date = start.get("date")
+                is_all_day = True
+                start_time = ""
+                end_time = ""
+            else:
+                # 시간 지정 일정
+                start_datetime = start.get("dateTime", "")
+                end_datetime = end.get("dateTime", "")
+                event_date = start_datetime[:10] if start_datetime else ""
+                is_all_day = False
+                start_time = start_datetime[11:16] if start_datetime else ""
+                end_time = end_datetime[11:16] if end_datetime else ""
+
+            if event_date:
+                event_dt = datetime.strptime(event_date, "%Y-%m-%d")
+                day_name = day_names[event_dt.weekday()]
+            else:
+                day_name = ""
+
+            schedule_list.append({
+                "date": event_date,
+                "day_name": day_name,
+                "title": event.get("summary", "제목 없음"),
+                "location": event.get("location", ""),
+                "start_time": start_time,
+                "end_time": end_time,
+                "is_all_day": is_all_day,
+            })
+
+        return schedule_list
+
+    except HttpError as e:
+        logging.error(f"Google Calendar API error (schedule): {e}")
+        return []
+    except Exception as e:
+        logging.exception(f"Error getting week schedule: {e}")
+        return []
+
+
+def _build_schedule_blocks(schedule_list):
+    """주간 스케줄을 Block Kit 형식으로 변환합니다."""
+    now = datetime.now(sheets_handler.KST)
+    current_weekday = now.weekday()
+    monday = now - timedelta(days=current_weekday)
+    sunday = monday + timedelta(days=6)
+
+    # 주차 계산
+    week_number = (monday.day - 1) // 7 + 1
+
+    blocks = [
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": "📅 이번 주 스케줄",
+                "emoji": True
+            }
+        },
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": f"📆 *{now.year}년 {now.month}월 {week_number}주차* ({monday.month}/{monday.day} ~ {sunday.month}/{sunday.day})"
+                }
+            ]
+        },
+        {"type": "divider"}
+    ]
+
+    day_names = ["월", "화", "수", "목", "금", "토", "일"]
+    day_emojis = ["🔵", "🔵", "🔵", "🔵", "🔵", "🟠", "🔴"]
+
+    for i in range(7):
+        day_date = monday + timedelta(days=i)
+        date_str = day_date.strftime("%Y-%m-%d")
+        day_name = day_names[i]
+        day_emoji = day_emojis[i]
+
+        day_events = [e for e in schedule_list if e["date"] == date_str]
+
+        is_today = date_str == now.strftime("%Y-%m-%d")
+        today_badge = " ✨ *오늘*" if is_today else ""
+
+        blocks.append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"{day_emoji} *{day_name}요일 ({day_date.month}/{day_date.day})*{today_badge}"
+            }
+        })
+
+        if day_events:
+            for event in day_events:
+                if event["is_all_day"]:
+                    time_str = "🕐 종일"
+                else:
+                    time_str = f"🕐 {event['start_time']} - {event['end_time']}"
+
+                location_str = f"\n📍 {event['location']}" if event['location'] else ""
+
+                event_text = f"```{event['title']}```\n{time_str}{location_str}"
+
+                blocks.append({
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": event_text
+                    }
+                })
+        else:
+            blocks.append({
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": "⚪ 휴무 (일정 없음)"
+                    }
+                ]
+            })
+
+        if i < 6:
+            blocks.append({"type": "divider"})
+
+    # 요약 섹션
+    total_events = len(schedule_list)
+    work_days = len(set(e["date"] for e in schedule_list))
+
+    blocks.extend([
+        {"type": "divider"},
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"📊 *이번 주 요약*\n총 {total_events}개 일정 | 근무예정 {work_days}일"
+            }
+        }
+    ])
+
+    return blocks
+
+
+def _build_empty_schedule_blocks():
+    """일정이 없을 때의 Block Kit을 생성합니다."""
+    now = datetime.now(sheets_handler.KST)
+    current_weekday = now.weekday()
+    monday = now - timedelta(days=current_weekday)
+    sunday = monday + timedelta(days=6)
+    week_number = (monday.day - 1) // 7 + 1
+
+    return [
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": "📅 이번 주 스케줄",
+                "emoji": True
+            }
+        },
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": f"📆 *{now.year}년 {now.month}월 {week_number}주차* ({monday.month}/{monday.day} ~ {sunday.month}/{sunday.day})"
+                }
+            ]
+        },
+        {"type": "divider"},
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "ℹ️ *이번 주 등록된 일정이 없습니다.*\n\n캘린더에 일정을 추가하면 여기에 표시됩니다."
+            }
+        }
+    ]
+
+
 # ------------------------------------------------
 # View 핸들러 (모든 action 핸들러보다 먼저 등록 - 중요!)
 # ------------------------------------------------
@@ -498,7 +748,37 @@ def handle_check_out(ack, body, client):
     )
 
 # ------------------------------------------------
-# 5. /급여정산 명령어 핸들러 (관리자 전용)
+# 5. /스케줄 명령어 핸들러
+# ------------------------------------------------
+@slack_app.command("/스케줄")
+def handle_schedule(ack, body, client):
+    """이번 주 스케줄을 조회하여 표시합니다."""
+    ack("📅 스케줄을 불러오는 중...")
+
+    channel_id = body.get("channel_id", body["user_id"])
+
+    try:
+        schedule_list = _get_week_schedule()
+
+        if schedule_list:
+            blocks = _build_schedule_blocks(schedule_list)
+        else:
+            blocks = _build_empty_schedule_blocks()
+
+        client.chat_postMessage(
+            channel=channel_id,
+            text="이번 주 스케줄",
+            blocks=blocks
+        )
+    except Exception as e:
+        logging.error(f"Error handling /스케줄: {e}")
+        client.chat_postMessage(
+            channel=channel_id,
+            text=f"⚠️ 스케줄 조회 중 오류가 발생했습니다: {e}"
+        )
+
+# ------------------------------------------------
+# 6. /급여정산 명령어 핸들러 (관리자 전용)
 # ------------------------------------------------
 @slack_app.command("/급여정산")
 def handle_payroll_settlement(ack, body, client):
