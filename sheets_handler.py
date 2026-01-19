@@ -540,6 +540,7 @@ def calculate_monthly_payroll(user_name, year, month):
             base_days = user_info.get("base_work_days", 0) if user_info else 0
             user_type = user_info.get("user_type", "정규직") if user_info else "정규직"
 
+            previous_work_dates = set()
 
             for row in all_values[1:]:
                 if len(row) > date_idx and len(row) > name_idx and len(row) > type_idx:
