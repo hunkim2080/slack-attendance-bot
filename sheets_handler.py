@@ -940,25 +940,29 @@ def calculate_all_payrolls(year, month):
             slack_id = user["slack_id"]
             
             # 기본 급여 계산
-            base_pay, work_days, _ = calculate_monthly_payroll(name, year, month)
-            
+            base_pay, work_days, daily_breakdown = calculate_monthly_payroll(name, year, month)
+
             # 근무일이 0이면 건너뛰기
             if work_days == 0:
                 continue
-            
+
+            # 근무일자 목록 추출 (날짜에서 일(day)만 추출, 정렬)
+            work_dates = sorted([int(item["date"].split("-")[2]) for item in daily_breakdown])
+
             # 인센티브 계산
             commission = get_commission(name, year, month)
-            
+
             # 교통비 계산
             transportation = calculate_transportation_allowance(work_days)
-            
+
             # 총 급여
             total_pay = base_pay + commission + transportation
-            
+
             payrolls.append({
                 "name": name,
                 "slack_id": slack_id,
                 "work_days": work_days,
+                "work_dates": work_dates,
                 "base_pay": base_pay,
                 "commission": commission,
                 "transportation": transportation,

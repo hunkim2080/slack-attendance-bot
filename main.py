@@ -1190,6 +1190,7 @@ def handle_send_payrolls(ack, body, client):
                 # 개인별 급여 명세서 생성
                 name = payroll['name']
                 work_days = payroll['work_days']
+                work_dates = payroll.get('work_dates', [])
                 base_pay = payroll['base_pay']
                 commission = payroll['commission']
                 transportation = payroll['transportation']
@@ -1221,6 +1222,9 @@ def handle_send_payrolls(ack, body, client):
                 else:
                     msg += f"일당: {avg_daily_pay_manwon}만원\n"
                 msg += f"총 출근일수: {work_days}일\n"
+                if work_dates:
+                    dates_str = ", ".join(str(d) for d in work_dates)
+                    msg += f"📆 근무일: {dates_str}일\n"
                 msg += f"계산: {avg_daily_pay_manwon}만원 × {work_days}일 = {base_pay // 10000}만원\n"
                 msg += f"교통비: {transportation // 10000}만원\n"
                 # 격려금은 별도 시트에서 가져와야 함 (현재는 생략)
