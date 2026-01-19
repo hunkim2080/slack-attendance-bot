@@ -491,7 +491,16 @@ def _handle_check_out(user_id: str, user_name: str, channel_id: str):
     user_type = user_info.get("user_type", "정규직") if user_info else "정규직"
     daily_pay = sheets_handler.calculate_daily_pay(prev_total_days, user_type)
     today_pay = daily_pay
-    
+
+    # 교육생 여부 및 교육 진행 상황 계산
+    is_trainee = user_type == "교육생" and current_total_days <= 60
+    if is_trainee:
+        training_day = current_total_days  # 현재 교육일차
+        days_remaining = 60 - current_total_days  # 남은 교육일수
+        pay_line = f"📚 교육 수료까지 D-{days_remaining}\n   ({training_day}일차 / 60일)"
+    else:
+        pay_line = f"💰일급 {today_pay:,}원 획득!"
+
     # 각성 경험치 진행률 계산
     awakening_progress_bar, awakening_percentage, days_to_next_awakening, _ = sheets_handler.get_awakening_progress(current_total_days)
     
@@ -513,7 +522,7 @@ def _handle_check_out(user_id: str, user_name: str, channel_id: str):
         "",
         "──────────────",
         "",
-        f"💰일급 {today_pay:,}원 획득!",
+        pay_line,
         "",
         "──────────────",
         "",
