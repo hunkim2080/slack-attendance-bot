@@ -3,15 +3,24 @@ Render 배포용 메인 진입점
 main.py의 모든 기능을 Flask 앱으로 통합
 """
 import os
-import sys
+import logging
 from flask import Flask, request
 
-# main.py를 모듈로 import
-# main.py가 functions_framework를 사용하지만, 우리는 Flask로 래핑할 것
 app = Flask(__name__)
 
-# main.py를 import하기 전에 환경 설정
-# main.py의 slack_handler를 Flask로 래핑
+# 로깅 설정
+logging.basicConfig(level=logging.INFO)
+
+# main.py를 import하여 Slack 앱 초기화
+# main.py에서 tasks_v2와 functions_framework는 선택적으로 처리됨
+try:
+    import main
+    # main.py의 handler를 사용
+    handler = main.handler
+    logging.info("Successfully imported main.py and handler")
+except Exception as e:
+    logging.error(f"Failed to import main.py: {e}")
+    handler = None
 
 @app.route('/', methods=['GET'])
 def health_check():
@@ -23,16 +32,12 @@ def health_check():
 @app.route('/slack/interactive', methods=['POST'])
 def slack_handler():
     """Slack 모든 요청 처리"""
-    # main.py의 handler를 사용
-    # main.py를 import하면 자동으로 핸들러가 등록됨
+    if not handler:
+        logging.error("Handler not available")
+        return ("Handler not initialized", 500)
+    
     try:
-        # main.py를 동적으로 import
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("main", "main.py")
-        main = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(main)
-        
-        # Flask request를 main.py의 handler가 기대하는 형식으로 변환
+        # Flask request를 SlackRequestHandler가 기대하는 형식으로 변환
         class FlaskRequestWrapper:
             def __init__(self, flask_request):
                 self.flask_request = flask_request
@@ -43,11 +48,10 @@ def slack_handler():
                 return self.flask_request.get_json(silent=silent)
         
         wrapped_request = FlaskRequestWrapper(request)
-        return main.handler.handle(wrapped_request)
+        return handler.handle(wrapped_request)
     except Exception as e:
-        import logging
-        logging.error(f"Error handling Slack request: {e}")
-        return ("Error", 500)
+        logging.error(f"Error handling Slack request: {e}", exc_info=True)
+        return (f"Error: {str(e)}", 500)
 
 @app.route('/worker', methods=['POST'])
 def worker_endpoint():

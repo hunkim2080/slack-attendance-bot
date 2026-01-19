@@ -10,10 +10,24 @@ from datetime import datetime
 from urllib.parse import quote
 
 import requests
-from google.cloud import tasks_v2
 
-# GCF 표준 라이브러리
-import functions_framework
+# Google Cloud Tasks (선택적 - Render에서는 사용 안 함)
+try:
+    from google.cloud import tasks_v2
+    TASKS_AVAILABLE = True
+except ImportError:
+    tasks_v2 = None
+    TASKS_AVAILABLE = False
+    logging.warning("google-cloud-tasks not available. Cloud Tasks features disabled.")
+
+# GCF 표준 라이브러리 (선택적 - Render에서는 사용 안 함)
+try:
+    import functions_framework
+    FUNCTIONS_FRAMEWORK_AVAILABLE = True
+except ImportError:
+    functions_framework = None
+    FUNCTIONS_FRAMEWORK_AVAILABLE = False
+
 from slack_bolt import App
 from slack_bolt.adapter.flask import SlackRequestHandler
 
@@ -32,18 +46,26 @@ logging.basicConfig(level=logging.INFO)
 # 관리자 Slack ID (환경 변수에서 가져오거나 하드코딩)
 ADMIN_SLACK_IDS = os.environ.get("ADMIN_SLACK_IDS", "").split(",") if os.environ.get("ADMIN_SLACK_IDS") else []
 
-# Cloud Tasks / Worker 설정
+# Cloud Tasks / Worker 설정 (Render에서는 직접 호출 사용)
 PROJECT_ID = os.environ.get("GCP_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT")
 TASKS_LOCATION = os.environ.get("TASKS_LOCATION", "asia-northeast3")
 TASKS_QUEUE_ID = os.environ.get("TASKS_QUEUE_ID", "attendance-queue")
-WORKER_URL = os.environ.get("WORKER_URL")  # 예: https://<worker-url>/worker
+# Render 환경에서는 RENDER_SERVICE_URL을 사용, 없으면 WORKER_URL 환경 변수 사용
+RENDER_SERVICE_URL = os.environ.get("RENDER_SERVICE_URL", "")
+WORKER_URL = os.environ.get("WORKER_URL") or (f"{RENDER_SERVICE_URL.rstrip('/')}/worker" if RENDER_SERVICE_URL else None)
 
-tasks_client = tasks_v2.CloudTasksClient()
-QUEUE_PATH = (
-    tasks_client.queue_path(PROJECT_ID, TASKS_LOCATION, TASKS_QUEUE_ID)
-    if PROJECT_ID
-    else None
-)
+# Cloud Tasks 클라이언트 (선택적)
+if TASKS_AVAILABLE and PROJECT_ID:
+    try:
+        tasks_client = tasks_v2.CloudTasksClient()
+        QUEUE_PATH = tasks_client.queue_path(PROJECT_ID, TASKS_LOCATION, TASKS_QUEUE_ID)
+    except Exception as e:
+        logging.warning(f"Failed to initialize Cloud Tasks client: {e}")
+        tasks_client = None
+        QUEUE_PATH = None
+else:
+    tasks_client = None
+    QUEUE_PATH = None
 
 
 # 1. Slack 앱 초기화
@@ -302,23 +324,10 @@ def handle_material_quantity_submit(ack, body, client):
 
 
 def enqueue_task(action: str, body: dict):
-    """출근/퇴근 처리를 비동기로 처리하기 위한 Cloud Task 생성."""
-    if not (PROJECT_ID and WORKER_URL and QUEUE_PATH):
-        logging.warning(
-            "Cloud Tasks 설정이 부족하여 동기 처리로 대체합니다. "
-            "PROJECT_ID=%s WORKER_URL=%s QUEUE_PATH=%s",
-            PROJECT_ID,
-            WORKER_URL,
-            QUEUE_PATH,
-        )
-        # 폴백: 기존 동기 처리
-        user_name = body.get("user_name")
-        if action == "check_in":
-            sheets_handler.record_check_in(user_name)
-        elif action == "check_out":
-            sheets_handler.record_check_out(user_name)
-        return
-
+    """출근/퇴근 처리를 비동기로 처리하기 위한 작업 큐 등록.
+    
+    Render에서는 Cloud Tasks 대신 직접 HTTP 요청으로 worker를 호출합니다.
+    """
     user_id = body.get("user_id")
     user_name = body.get("user_name")
     channel_id = body.get("channel_id", user_id)
@@ -330,19 +339,60 @@ def enqueue_task(action: str, body: dict):
         "channel_id": channel_id,
     }
 
-    task = {
-        "http_request": {
-            "http_method": tasks_v2.HttpMethod.POST,
-            "url": WORKER_URL,
-            "headers": {"Content-Type": "application/json"},
-            "body": json.dumps(payload).encode("utf-8"),
-        }
-    }
-
-    logging.info(
-        "Enqueue task: action=%s user=%s channel=%s", action, user_name, channel_id
-    )
-    tasks_client.create_task(parent=QUEUE_PATH, task=task)
+    # Render 환경에서는 직접 HTTP 요청으로 worker 호출
+    if WORKER_URL:
+        try:
+            import requests
+            response = requests.post(
+                WORKER_URL,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=30
+            )
+            logging.info(
+                "Worker called directly: action=%s user=%s channel=%s status=%s",
+                action, user_name, channel_id, response.status_code
+            )
+            return
+        except Exception as e:
+            logging.error(f"Failed to call worker directly: {e}")
+            # 폴백: 동기 처리
+            pass
+    
+    # Cloud Tasks 사용 (GCP 환경에서만)
+    if TASKS_AVAILABLE and tasks_client and QUEUE_PATH:
+        try:
+            task = {
+                "http_request": {
+                    "http_method": tasks_v2.HttpMethod.POST,
+                    "url": WORKER_URL,
+                    "headers": {"Content-Type": "application/json"},
+                    "body": json.dumps(payload).encode("utf-8"),
+                }
+            }
+            tasks_client.create_task(parent=QUEUE_PATH, task=task)
+            logging.info(
+                "Enqueued task: action=%s user=%s channel=%s", action, user_name, channel_id
+            )
+            return
+        except Exception as e:
+            logging.warning(f"Failed to enqueue task via Cloud Tasks: {e}")
+    
+    # 최종 폴백: 동기 처리 (worker_main 직접 호출)
+    logging.warning("Using synchronous fallback for action=%s", action)
+    try:
+        class MockRequest:
+            def get_json(self, silent=False):
+                return payload
+        worker_main.worker(MockRequest())
+    except Exception as e:
+        logging.error(f"Failed to process synchronously: {e}")
+        # 최후의 수단: 기본 기록만 수행
+        user_name = body.get("user_name")
+        if action == "check_in":
+            sheets_handler.record_check_in(user_name)
+        elif action == "check_out":
+            sheets_handler.record_check_out(user_name)
 
 
 # ------------------------------------------------
@@ -2336,35 +2386,26 @@ def handle_save_material_usage(ack, body, client, logger):
 
 
 # ------------------------------------------------
-# 8. GCF 2세대 표준 진입점
+# 8. GCF 2세대 표준 진입점 (선택적 - GCF에서만 사용)
 # ------------------------------------------------
-@functions_framework.http
-def slack_handler(request):
-    if request.method != "POST":
-        return "Only POST requests are accepted", 405
-    
-    return handler.handle(request)
+if FUNCTIONS_FRAMEWORK_AVAILABLE:
+    @functions_framework.http
+    def slack_handler(request):
+        if request.method != "POST":
+            return "Only POST requests are accepted", 405
+        
+        return handler.handle(request)
 
+    @functions_framework.http
+    def worker_handler(request):
+        """Cloud Tasks가 호출하는 워커 HTTP 엔드포인트.
 
-# ------------------------------------------------
-# 8. Cloud Tasks 워커용 진입점
-# ------------------------------------------------
+        실제 로직은 `worker_main.worker` 에서 처리한다.
+        """
+        return worker_main.worker(request)
 
-@functions_framework.http
-def worker_handler(request):
-    """Cloud Tasks가 호출하는 워커 HTTP 엔드포인트.
-
-    실제 로직은 `worker_main.worker` 에서 처리한다.
-    """
-    return worker_main.worker(request)
-
-
-# ------------------------------------------------
-# 9. T-map 앱 딥링크 리다이렉트 핸들러
-# ------------------------------------------------
-
-@functions_framework.http
-def open_tmap_handler(request):
+    @functions_framework.http
+    def open_tmap_handler(request):
     """T-map 앱을 열기 위한 중간 리다이렉트 페이지.
     
     Slack 버튼에서 호출되며, 플랫폼(Android/iOS)을 감지해서
@@ -2429,3 +2470,6 @@ def open_tmap_handler(request):
     </html>
     """)
     return (html, 200, {"Content-Type": "text/html; charset=utf-8"})
+else:
+    # Render 환경에서는 app.py의 tmap_redirect를 사용
+    pass
