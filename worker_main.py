@@ -96,25 +96,34 @@ def _get_weather_forecast(site_address: str = None):
         kst = datetime.now(KST)
         today = kst.strftime("%Y%m%d")
         current_hour = kst.hour
-        
+        current_minute = kst.minute
+
         # 단기예보 발표시각: 02, 05, 08, 11, 14, 17, 20, 23시
-        # 현재 시간 이전의 가장 최근 발표시각 사용
+        # 발표 후 약 10분 뒤에야 API에서 조회 가능하므로 버퍼 적용
         base_times = [23, 20, 17, 14, 11, 8, 5, 2]
         base_time_hour = None
-        for bt in base_times:
-            if current_hour >= bt or (bt == 23 and current_hour < 2):
-                base_time_hour = bt
-                break
-        
-        if base_time_hour is None:
-            base_time_hour = 23  # 기본값 (전날 23시 발표)
-            # 전날로 계산
+
+        # 자정~02:10 사이는 전날 23시 발표 데이터 사용
+        if current_hour < 2 or (current_hour == 2 and current_minute < 10):
+            base_time_hour = 23
             yesterday = (kst - timedelta(days=1)).strftime("%Y%m%d")
             base_date = yesterday
         else:
-            base_date = today
-        
+            for bt in base_times:
+                # 발표 시각 + 10분 이후에만 해당 데이터 사용 가능
+                if current_hour > bt or (current_hour == bt and current_minute >= 10):
+                    base_time_hour = bt
+                    break
+
+            if base_time_hour is None:
+                base_time_hour = 23  # 기본값 (전날 23시 발표)
+                yesterday = (kst - timedelta(days=1)).strftime("%Y%m%d")
+                base_date = yesterday
+            else:
+                base_date = today
+
         base_time = f"{base_time_hour:02d}00"
+        logging.info(f"날씨 API base_time 선택: {base_date} {base_time} (현재: {current_hour}:{current_minute:02d})")
         
         # 현장 주소에서 격자 좌표 계산
         if site_address:
