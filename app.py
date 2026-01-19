@@ -63,6 +63,10 @@ def slack_handler():
                 
             def get_json(self, silent=False):
                 return self.flask_request.get_json(silent=silent)
+            
+            def get_data(self, as_text=False):
+                """Slack Bolt가 요구하는 get_data 메서드"""
+                return self.flask_request.get_data(as_text=as_text)
         
         wrapped_request = FlaskRequestWrapper(request)
         return handler.handle(wrapped_request)
