@@ -517,8 +517,12 @@ def _handle_check_out(user_id: str, user_name: str, channel_id: str):
     current_year = now.year
     current_month = now.month
 
+    # 퇴근 기록 후 누적근무일수 +1 증가
     current_total_days = sheets_handler.get_total_work_days(name_for_log)
-    
+    new_total_days = current_total_days + 1
+    sheets_handler.update_user_base_work_days(name_for_log, new_total_days)
+    current_total_days = new_total_days  # 이후 로직에서 증가된 값 사용
+
     # 퇴근 시 레벨업 및 각성 단계 체크 (퇴근해야 1일 완성)
     level_up, new_level, old_level = sheets_handler.check_level_up(current_total_days, prev_total_days)
     awakening_cutscene, cutscene_msg = sheets_handler.get_awakening_cutscene(current_total_days, prev_total_days)
