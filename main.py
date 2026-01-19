@@ -2406,70 +2406,70 @@ if FUNCTIONS_FRAMEWORK_AVAILABLE:
 
     @functions_framework.http
     def open_tmap_handler(request):
-    """T-map 앱을 열기 위한 중간 리다이렉트 페이지.
-    
-    Slack 버튼에서 호출되며, 플랫폼(Android/iOS)을 감지해서
-    T-map 앱 딥링크로 리다이렉트합니다.
-    """
-    addr = request.args.get("addr", "")
-    if not addr:
-        return ("주소 파라미터가 필요합니다.", 400)
-    
-    encoded_addr = quote(addr)
-    
-    # T-map 검색 딥링크 (주소 검색 결과 바로 표시)
-    # Android용 Intent URL
-    android_intent = (
-        f"intent://search?name={encoded_addr}"
-        "#Intent;scheme=tmap;package=com.skt.tmap.ku;end;"
-    )
-    
-    # iOS용 URL Scheme
-    ios_scheme = f"tmap://search?name={encoded_addr}"
-    
-    # Fallback: 웹 지도
-    fallback_web = f"https://tmapapi.sktelecom.com/main/map.html?q={encoded_addr}"
-    
-    html = textwrap.dedent(f"""
-    <!doctype html>
-    <html>
-    <head>
-      <meta charset="utf-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>T-map 열기</title>
-      <script>
-        function isAndroid() {{
-          return /Android/i.test(navigator.userAgent);
-        }}
-        function isIOS() {{
-          return /iPhone|iPad|iPod/i.test(navigator.userAgent);
-        }}
-        function openApp() {{
-          var tried = false;
-          if (isAndroid()) {{
-            tried = true;
-            window.location.href = "{android_intent}";
-          }} else if (isIOS()) {{
-            tried = true;
-            window.location.href = "{ios_scheme}";
-          }}
-          // 1.5초 안에 앱이 안 뜬다고 가정하고 웹 fallback
-          setTimeout(function() {{
-            if (tried) {{
-              window.location.href = "{fallback_web}";
+        """T-map 앱을 열기 위한 중간 리다이렉트 페이지.
+        
+        Slack 버튼에서 호출되며, 플랫폼(Android/iOS)을 감지해서
+        T-map 앱 딥링크로 리다이렉트합니다.
+        """
+        addr = request.args.get("addr", "")
+        if not addr:
+            return ("주소 파라미터가 필요합니다.", 400)
+        
+        encoded_addr = quote(addr)
+        
+        # T-map 검색 딥링크 (주소 검색 결과 바로 표시)
+        # Android용 Intent URL
+        android_intent = (
+            f"intent://search?name={encoded_addr}"
+            "#Intent;scheme=tmap;package=com.skt.tmap.ku;end;"
+        )
+        
+        # iOS용 URL Scheme
+        ios_scheme = f"tmap://search?name={encoded_addr}"
+        
+        # Fallback: 웹 지도
+        fallback_web = f"https://tmapapi.sktelecom.com/main/map.html?q={encoded_addr}"
+        
+        html = textwrap.dedent(f"""
+        <!doctype html>
+        <html>
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <title>T-map 열기</title>
+          <script>
+            function isAndroid() {{
+              return /Android/i.test(navigator.userAgent);
             }}
-          }}, 1500);
-        }}
-        window.onload = openApp;
-      </script>
-    </head>
-    <body style="font-family: sans-serif; text-align: center; padding: 20px;">
-      <p>T-map 앱을 여는 중입니다...</p>
-      <p>자동으로 열리지 않으면 <a href="{fallback_web}">여기</a>를 눌러주세요.</p>
-    </body>
-    </html>
-    """)
-    return (html, 200, {"Content-Type": "text/html; charset=utf-8"})
+            function isIOS() {{
+              return /iPhone|iPad|iPod/i.test(navigator.userAgent);
+            }}
+            function openApp() {{
+              var tried = false;
+              if (isAndroid()) {{
+                tried = true;
+                window.location.href = "{android_intent}";
+              }} else if (isIOS()) {{
+                tried = true;
+                window.location.href = "{ios_scheme}";
+              }}
+              // 1.5초 안에 앱이 안 뜬다고 가정하고 웹 fallback
+              setTimeout(function() {{
+                if (tried) {{
+                  window.location.href = "{fallback_web}";
+                }}
+              }}, 1500);
+            }}
+            window.onload = openApp;
+          </script>
+        </head>
+        <body style="font-family: sans-serif; text-align: center; padding: 20px;">
+          <p>T-map 앱을 여는 중입니다...</p>
+          <p>자동으로 열리지 않으면 <a href="{fallback_web}">여기</a>를 눌러주세요.</p>
+        </body>
+        </html>
+        """)
+        return (html, 200, {"Content-Type": "text/html; charset=utf-8"})
 else:
     # Render 환경에서는 app.py의 tmap_redirect를 사용
     pass
