@@ -481,42 +481,21 @@ def handle_check_in(ack, body, client):
         return
 
 # ------------------------------------------------
-# 4. /퇴근 명령어 핸들러 (게임화 버전)
+# 4. /퇴근 명령어 핸들러 (안내 메시지로 변경)
 # ------------------------------------------------
 @slack_app.command("/퇴근")
 def handle_check_out(ack, body, client):
-    # 1. 3초 타임아웃 방지를 위해 즉시 응답 (랜덤 멘트)
-    messages = [
-        "퇴근 처리 중... 💾 오늘 하루 정말 고생 많으셨어요! 집까지 안전하게 모시겠습니다 🏠",
-        "업무를 종료합니다 🏁 피곤하실 텐데 졸음운전 조심! 창문 열고 환기 한 번 하고 출발해요 🌬️",
-        "데이터 저장 완료! 📥 무거운 장비는 내려놓고, 이제 가벼운 마음으로 핸들 잡아보세요 😌",
-        "퇴근 도장 쾅! 🔨 오늘 흘린 땀방울만큼 꿀맛 같은 휴식이 기다리고 있어요! 고고! 🍯",
-        "수고하셨습니다! 🙌 어두운 퇴근길, 갈 때보다 더 주의해서 안전 운전! 아시죠? 🚘",
-        "오늘 일과 끝! 🔚 집에 도착할 때까지가 업무의 연장입니다. 끝까지 방어 운전 부탁해요 🛡️",
-        "퇴근 기록 저장 중... ⏳ 배터리가 방전되셨나요? 🪫 얼른 집 가서 풀충전하러 가시죠! ⚡️",
-        "위치 확인 종료 📍 사랑하는 가족이 기다리는 집으로! 과속하지 말고 천천히 가요 👨‍👩‍👧‍👦",
-        "오늘도 무사히 마쳤습니다 ✅ 긴장 풀지 말고 안전하게 귀가하기! 내일 또 웃으며 만나요 👋",
-    ]
-    ack(random.choice(messages))
-    
-    user_id = body["user_id"]
-    channel_id = body.get("channel_id", user_id)
-    
-    # user_name 추출 (Slack body에서)
-    user_name = body.get("user", {}).get("name", "")
-
-    # 실제 처리(시트 기록, 게임화 메시지)는 워커에서 수행
-    try:
-        # body에 user_name 추가
-        task_body = body.copy()
-        task_body["user_name"] = user_name
-        enqueue_task("check_out", task_body)
-    except Exception as e:
-        logging.error(f"Error enqueueing /퇴근 task: {e}")
-        client.chat_postMessage(
-            channel=channel_id,
-            text=f"🚨 퇴근 작업 큐 등록 중 서버 오류가 발생했습니다: {e}",
-        )
+    ack()
+    channel_id = body.get("channel_id", body["user_id"])
+    client.chat_postMessage(
+        channel=channel_id,
+        text="📢 *퇴근 기록 방법이 변경되었습니다!*\n\n"
+             "아래 순서로 진행해주세요:\n"
+             "1️⃣ 자재사용대장 작성\n"
+             "2️⃣ 현장사진 업로드\n"
+             "3️⃣ ⭐ 경험치획득(퇴근) 버튼 클릭\n\n"
+             "출근 메시지의 [📋 자재사용대장] 버튼을 눌러 시작하세요."
+    )
 
 # ------------------------------------------------
 # 5. /급여정산 명령어 핸들러 (관리자 전용)

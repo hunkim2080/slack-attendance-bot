@@ -761,8 +761,16 @@ def _send_slack_with_tmap(channel: str, text: str, site_addresses=None):
                     "style": "primary"
                 })
         
-        # 자재사용대장 버튼은 제거 (출근 메시지에는 T-map만 표시)
-        
+        # 자재사용대장 버튼 추가
+        buttons.append({
+            "type": "button",
+            "text": {
+                "type": "plain_text",
+                "text": "📋 자재사용대장"
+            },
+            "action_id": "open_material_log"
+        })
+
         if buttons:
             blocks.append({
                 "type": "actions",
