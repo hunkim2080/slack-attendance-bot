@@ -60,6 +60,8 @@ def slack_handler():
                 self.flask_request = flask_request
                 self.method = flask_request.method
                 self.args = flask_request.args
+                # query_string은 bytes이거나 string일 수 있음
+                self.query_string = flask_request.query_string
                 
             def get_json(self, silent=False):
                 return self.flask_request.get_json(silent=silent)
