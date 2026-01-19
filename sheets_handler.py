@@ -150,7 +150,7 @@ def record_check_out(user_name: str):
 # ----------------------------------------------------
 def get_total_work_days(user_name: str):
     """사용자의 총 근무일수를 계산합니다.
-    
+
     하루에 출근과 퇴근이 모두 있어야 근무일수로 카운트됩니다.
     """
     try:
@@ -161,35 +161,42 @@ def get_total_work_days(user_name: str):
                 range="AttendanceLog!A:E"
             ).execute()
             all_values = resp.get("values", [])
+
+            logging.info(f"[get_total_work_days] user_name: '{user_name}'")
+            logging.info(f"[get_total_work_days] total rows: {len(all_values)}")
+
             if len(all_values) < 2:
                 return 0
 
             # 날짜별로 출근/퇴근 기록을 추적
             date_records = {}  # {날짜: {"출근": bool, "퇴근": bool}}
-            
+
             for row in all_values[1:]:
                 if len(row) < 4:
                     continue
-                
+
                 date = row[0] if len(row) > 0 else ""
-                name = row[1] if len(row) > 1 else ""
+                name = (row[1] if len(row) > 1 else "").strip()  # strip() 추가
                 record_type = row[3] if len(row) > 3 else ""
-                
-                if name == user_name and date:
+
+                if name == user_name.strip() and date:  # strip() 추가
                     if date not in date_records:
                         date_records[date] = {"출근": False, "퇴근": False}
-                    
+
                     if record_type == "출근":
                         date_records[date]["출근"] = True
                     elif record_type == "퇴근":
                         date_records[date]["퇴근"] = True
-            
+
+            logging.info(f"[get_total_work_days] date_records: {date_records}")
+
             # 출근과 퇴근이 모두 있는 날짜만 카운트
             count = 0
             for date, records in date_records.items():
                 if records["출근"] and records["퇴근"]:
                     count += 1
 
+            logging.info(f"[get_total_work_days] attendance_count: {count}")
             return count
 
         attendance_count = execute_with_retry(_task)
@@ -197,6 +204,9 @@ def get_total_work_days(user_name: str):
         # UserMaster에서 base_work_days 조회하여 더함
         user_info = get_user_info(user_name)
         base_days = user_info.get("base_work_days", 0) if user_info else 0
+
+        logging.info(f"[get_total_work_days] base_days: {base_days}")
+        logging.info(f"[get_total_work_days] total: {base_days + attendance_count}")
 
         return base_days + attendance_count
     except Exception as e:
