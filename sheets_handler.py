@@ -189,10 +189,16 @@ def get_total_work_days(user_name: str):
             for date, records in date_records.items():
                 if records["출근"] and records["퇴근"]:
                     count += 1
-            
+
             return count
 
-        return execute_with_retry(_task)
+        attendance_count = execute_with_retry(_task)
+
+        # UserMaster에서 base_work_days 조회하여 더함
+        user_info = get_user_info(user_name)
+        base_days = user_info.get("base_work_days", 0) if user_info else 0
+
+        return base_days + attendance_count
     except Exception as e:
         logging.exception(f"Error getting total work days for {user_name}: {e}")
         return 0
