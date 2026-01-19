@@ -585,99 +585,105 @@ def calculate_monthly_payroll(user_name, year, month):
 def get_commission(user_name, year, month):
     """
     특정 월의 인센티브(격려금) 총액을 조회합니다.
+    Incentive 시트가 없으면 조용히 0을 반환합니다.
     """
     try:
-        def _task():
-            service = _build_service()
+        service = _build_service()
+        try:
             resp = service.spreadsheets().values().get(
                 spreadsheetId=SPREADSHEET_KEY,
                 range="Incentive!A:F"
             ).execute()
-            all_values = resp.get("values", [])
-            if len(all_values) < 2:
-                return 0
+        except Exception:
+            # Incentive 시트가 없으면 조용히 0 반환 (로그 없음)
+            return 0
 
-            headers = all_values[0]
-            date_idx = headers.index("날짜") if "날짜" in headers else 0
-            name_idx = headers.index("이름") if "이름" in headers else 1
-            amount_idx = headers.index("금액") if "금액" in headers else 2
+        all_values = resp.get("values", [])
+        if len(all_values) < 2:
+            return 0
 
-            total = 0
-            target_month = f"{year}-{month:02d}"
+        headers = all_values[0]
+        date_idx = headers.index("날짜") if "날짜" in headers else 0
+        name_idx = headers.index("이름") if "이름" in headers else 1
+        amount_idx = headers.index("금액") if "금액" in headers else 2
 
-            for row in all_values[1:]:
-                if len(row) > date_idx and len(row) > name_idx and len(row) > amount_idx:
-                    if row[name_idx] == user_name:
-                        date_str = row[date_idx]
-                        if date_str.startswith(target_month):
-                            try:
-                                amount = int(float(row[amount_idx]))
-                                total += amount
-                            except (ValueError, IndexError):
-                                continue
+        total = 0
+        target_month = f"{year}-{month:02d}"
 
-            return total
+        for row in all_values[1:]:
+            if len(row) > date_idx and len(row) > name_idx and len(row) > amount_idx:
+                if row[name_idx] == user_name:
+                    date_str = row[date_idx]
+                    if date_str.startswith(target_month):
+                        try:
+                            amount = int(float(row[amount_idx]))
+                            total += amount
+                        except (ValueError, IndexError):
+                            continue
 
-        return execute_with_retry(_task)
-    except Exception as e:
-        logging.exception(f"Error getting commission for {user_name}: {e}")
+        return total
+    except Exception:
+        # 에러 로그 없이 0 반환
         return 0
 
 
 def get_commission_details(user_name, year, month):
     """
     특정 월의 인센티브 상세 내역을 조회합니다.
+    Incentive 시트가 없으면 조용히 빈 배열을 반환합니다.
     반환: [{"date": str, "total": int, "items": [{"description": str, "amount": int}]}, ...]
     """
     try:
-        def _task():
-            service = _build_service()
+        service = _build_service()
+        try:
             resp = service.spreadsheets().values().get(
                 spreadsheetId=SPREADSHEET_KEY,
                 range="Incentive!A:F"
             ).execute()
-            all_values = resp.get("values", [])
-            if len(all_values) < 2:
-                return []
+        except Exception:
+            # Incentive 시트가 없으면 조용히 빈 배열 반환 (로그 없음)
+            return []
 
-            headers = all_values[0]
-            date_idx = headers.index("날짜") if "날짜" in headers else 0
-            name_idx = headers.index("이름") if "이름" in headers else 1
-            amount_idx = headers.index("금액") if "금액" in headers else 2
-            description_idx = headers.index("내용") if "내용" in headers else 3
+        all_values = resp.get("values", [])
+        if len(all_values) < 2:
+            return []
 
-            details_by_date = {}
-            target_month = f"{year}-{month:02d}"
+        headers = all_values[0]
+        date_idx = headers.index("날짜") if "날짜" in headers else 0
+        name_idx = headers.index("이름") if "이름" in headers else 1
+        amount_idx = headers.index("금액") if "금액" in headers else 2
+        description_idx = headers.index("내용") if "내용" in headers else 3
 
-            for row in all_values[1:]:
-                if len(row) > date_idx and len(row) > name_idx and len(row) > amount_idx:
-                    if row[name_idx] == user_name:
-                        date_str = row[date_idx]
-                        if date_str.startswith(target_month):
-                            try:
-                                amount = int(float(row[amount_idx]))
-                                description = row[description_idx] if len(row) > description_idx else ""
-                                
-                                if date_str not in details_by_date:
-                                    details_by_date[date_str] = {
-                                        "date": date_str,
-                                        "total": 0,
-                                        "items": []
-                                    }
-                                
-                                details_by_date[date_str]["total"] += amount
-                                details_by_date[date_str]["items"].append({
-                                    "description": description,
-                                    "amount": amount
-                                })
-                            except (ValueError, IndexError):
-                                continue
+        details_by_date = {}
+        target_month = f"{year}-{month:02d}"
 
-            return list(details_by_date.values())
+        for row in all_values[1:]:
+            if len(row) > date_idx and len(row) > name_idx and len(row) > amount_idx:
+                if row[name_idx] == user_name:
+                    date_str = row[date_idx]
+                    if date_str.startswith(target_month):
+                        try:
+                            amount = int(float(row[amount_idx]))
+                            description = row[description_idx] if len(row) > description_idx else ""
 
-        return execute_with_retry(_task)
-    except Exception as e:
-        logging.exception(f"Error getting commission details for {user_name}: {e}")
+                            if date_str not in details_by_date:
+                                details_by_date[date_str] = {
+                                    "date": date_str,
+                                    "total": 0,
+                                    "items": []
+                                }
+
+                            details_by_date[date_str]["total"] += amount
+                            details_by_date[date_str]["items"].append({
+                                "description": description,
+                                "amount": amount
+                            })
+                        except (ValueError, IndexError):
+                            continue
+
+        return list(details_by_date.values())
+    except Exception:
+        # 에러 로그 없이 빈 배열 반환
         return []
 
 
