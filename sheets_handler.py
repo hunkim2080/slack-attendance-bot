@@ -477,10 +477,23 @@ def get_monthly_work_count(user_name, year, month):
 # ----------------------------------------------------
 # 10. 일당 계산 (계단식)
 # ----------------------------------------------------
-def calculate_daily_pay(total_days):
+def calculate_daily_pay(total_days, user_type=None):
     """
     총 근무일수에 따른 일당을 계산합니다.
+    
+    Args:
+        total_days: 총 근무일수
+        user_type: 사용자 타입 ("교육생" 또는 "정규직", None이면 정규직으로 처리)
+    
+    Returns:
+        int: 일당 (원)
     """
+    # 교육생은 1~60일까지 급여 없음
+    if user_type == "교육생" and total_days <= 60:
+        return 0
+    
+    # 교육생이 61일 이상이면 정규 급여 적용
+    # 정규직이거나 user_type이 None이면 정규 급여 적용
     for min_days, max_days, rate in PAY_RATES:
         if min_days <= total_days <= max_days:
             return rate
@@ -525,6 +538,7 @@ def calculate_monthly_payroll(user_name, year, month):
 
             user_info = get_user_info(user_name)
             base_days = user_info.get("base_work_days", 0) if user_info else 0
+            user_type = user_info.get("user_type", "정규직") if user_info else "정규직"
 
 
             for row in all_values[1:]:
@@ -542,7 +556,7 @@ def calculate_monthly_payroll(user_name, year, month):
 
             for work_date in work_dates_sorted:
                 current_total_days = previous_days + work_dates_sorted.index(work_date) + 1
-                daily_pay = calculate_daily_pay(current_total_days)
+                daily_pay = calculate_daily_pay(current_total_days, user_type)
                 total_pay += daily_pay
                 daily_breakdown.append({
                     "date": work_date,
@@ -764,14 +778,14 @@ def get_user_info(user_key):
     user_key는 Slack_ID 또는 한글 이름일 수 있습니다.
     
     Returns:
-        dict: {"name": str, "base_work_days": int, "address": str} 또는 None
+        dict: {"name": str, "base_work_days": int, "user_type": str, "address": str} 또는 None
     """
     try:
         def _task():
             service = _build_service()
             resp = service.spreadsheets().values().get(
                 spreadsheetId=SPREADSHEET_KEY,
-                range="UserMaster!A:F"  # A: 이름, B: Slack_ID, C: 기본근무일수, F: 주소
+                range="UserMaster!A:G"  # A: 이름, B: Slack_ID, C: 기본근무일수, D: 구분(사용자타입), F: 주소
             ).execute()
             all_values = resp.get("values", [])
             if len(all_values) < 2:
@@ -783,6 +797,7 @@ def get_user_info(user_key):
                     name = row[0].strip() if len(row) > 0 else ""  # A열: 이름
                     slack_id = row[1].strip() if len(row) > 1 else ""  # B열: Slack_ID
                     base_days = 0
+                    user_type = "정규직"  # 기본값
                     address = ""
                     
                     # 기본근무일수 (C열)
@@ -791,6 +806,10 @@ def get_user_info(user_key):
                             base_days = int(float(row[2]))
                         except (ValueError, TypeError):
                             base_days = 0
+                    
+                    # 사용자 타입 (D열: "정규직" 또는 "교육생")
+                    if len(row) > 3 and row[3]:
+                        user_type = row[3].strip()
                     
                     # 주소 (F열)
                     if len(row) > 5 and row[5]:
@@ -801,12 +820,14 @@ def get_user_info(user_key):
                         return {
                             "name": name,
                             "base_work_days": base_days,
+                            "user_type": user_type,
                             "address": address
                         }
                     elif name and name == user_key:
                         return {
                             "name": name,
                             "base_work_days": base_days,
+                            "user_type": user_type,
                             "address": address
                         }
             
@@ -823,14 +844,14 @@ def get_all_users():
     UserMaster 시트에서 모든 사용자 목록을 조회합니다.
     
     Returns:
-        List[Dict]: [{"name": str, "slack_id": str, "base_work_days": int, "address": str}, ...]
+        List[Dict]: [{"name": str, "slack_id": str, "base_work_days": int, "user_type": str, "address": str}, ...]
     """
     try:
         def _task():
             service = _build_service()
             resp = service.spreadsheets().values().get(
                 spreadsheetId=SPREADSHEET_KEY,
-                range="UserMaster!A:F"  # A: 이름, B: Slack_ID, C: 기본근무일수, F: 주소
+                range="UserMaster!A:G"  # A: 이름, B: Slack_ID, C: 기본근무일수, D: 구분(사용자타입), F: 주소
             ).execute()
             all_values = resp.get("values", [])
             if len(all_values) < 2:
@@ -847,6 +868,7 @@ def get_all_users():
                         continue
                     
                     base_days = 0
+                    user_type = "정규직"  # 기본값
                     address = ""
                     
                     # 기본근무일수 (C열)
@@ -856,6 +878,10 @@ def get_all_users():
                         except (ValueError, TypeError):
                             base_days = 0
                     
+                    # 사용자 타입 (D열: "정규직" 또는 "교육생")
+                    if len(row) > 3 and row[3]:
+                        user_type = row[3].strip()
+                    
                     # 주소 (F열)
                     if len(row) > 5 and row[5]:
                         address = row[5].strip()
@@ -864,6 +890,7 @@ def get_all_users():
                         "name": name,
                         "slack_id": slack_id,
                         "base_work_days": base_days,
+                        "user_type": user_type,
                         "address": address
                     })
             

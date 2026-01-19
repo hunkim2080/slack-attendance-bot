@@ -4,7 +4,6 @@ import os
 from datetime import datetime, timedelta
 from urllib.parse import quote, urlencode
 
-import functions_framework
 import requests
 import pytz
 from slack_sdk import WebClient
@@ -289,7 +288,6 @@ def _get_today_site_addresses():
 
 
 
-@functions_framework.http
 def worker(request):
     """Cloud Tasks에서 호출하는 워커 엔드포인트.
 
@@ -483,7 +481,8 @@ def _handle_check_out(user_id: str, user_name: str, channel_id: str):
     awakening_cutscene, cutscene_msg = sheets_handler.get_awakening_cutscene(current_total_days, prev_total_days)
     
     # 오늘 일급 계산 (퇴근 전 총 근무일수 기준으로 일당 계산)
-    daily_pay = sheets_handler.calculate_daily_pay(prev_total_days)
+    user_type = user_info.get("user_type", "정규직") if user_info else "정규직"
+    daily_pay = sheets_handler.calculate_daily_pay(prev_total_days, user_type)
     today_pay = daily_pay
     
     # 각성 경험치 진행률 계산

@@ -588,7 +588,8 @@ function handleCheckOut(payload) {
     checkLevelUpAndAwakening(userInfo, prevTotalDays, currentTotalDays);
     
     // 일급 계산
-    const dailyPay = calculateDailyPay(prevTotalDays);
+    const userType = userInfo.user_type || "정규직";
+    const dailyPay = calculateDailyPay(prevTotalDays, userType);
     
     // 각성 경험치 진행률
     const awakeningProgress = getAwakeningProgress(currentTotalDays);

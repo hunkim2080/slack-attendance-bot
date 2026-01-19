@@ -146,6 +146,7 @@ function getUserInfo(userKey) {
       const name = row[0] ? row[0].toString().trim() : "";
       const slackId = row[1] ? row[1].toString().trim() : "";
       const baseDays = row[2] ? (Number(row[2]) || 0) : 0;
+      const userType = row[3] ? row[3].toString().trim() : "정규직";  // D열: 구분(사용자타입)
       const address = row[5] ? row[5].toString().trim() : "";
       
       if ((slackId && slackId === userKey) || (name && name === userKey)) {
@@ -153,6 +154,7 @@ function getUserInfo(userKey) {
           name: name,
           slack_id: slackId,
           base_work_days: baseDays,
+          user_type: userType,
           address: address
         };
       }
@@ -182,12 +184,14 @@ function getAllUsers() {
       
       const slackId = row[1] ? row[1].toString().trim() : "";
       const baseDays = row[2] ? (Number(row[2]) || 0) : 0;
+      const userType = row[3] ? row[3].toString().trim() : "정규직";  // D열: 구분(사용자타입)
       const address = row[5] ? row[5].toString().trim() : "";
       
       users.push({
         name: name,
         slack_id: slackId,
         base_work_days: baseDays,
+        user_type: userType,
         address: address
       });
     }
