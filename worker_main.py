@@ -21,7 +21,14 @@ SITE_ADDRESS = os.environ.get("SITE_ADDRESS", "")
 GOOGLE_CALENDAR_ID = os.environ.get("GOOGLE_CALENDAR_ID", "")
 GCP_PROJECT = os.environ.get("GCP_PROJECT", "slack-480914")
 TASKS_LOCATION = os.environ.get("TASKS_LOCATION", "asia-northeast3")
-OPEN_TMAP_BASE_URL = f"https://{TASKS_LOCATION}-{GCP_PROJECT}.cloudfunctions.net/open_tmap_handler"
+# T-map URL: Render 서비스 URL 또는 직접 T-map 웹 URL 사용
+RENDER_SERVICE_URL = os.environ.get("RENDER_SERVICE_URL", "")
+# Render URL이 있으면 사용, 없으면 T-map 웹 URL 직접 사용
+if RENDER_SERVICE_URL:
+    OPEN_TMAP_BASE_URL = f"{RENDER_SERVICE_URL.rstrip('/')}/tmap"
+else:
+    # T-map 웹 지도 URL 직접 사용
+    OPEN_TMAP_BASE_URL = "https://tmapapi.sktelecom.com/main/map.html"
 WEATHER_API_KEY = os.environ.get("WEATHER_API_KEY", "")
 
 
@@ -573,7 +580,12 @@ def _send_slack_with_buttons(channel: str, text: str, home_address: str = None):
         # 1. 귀환스킬발동 버튼 (집주소로 t-map)
         if home_address:
             encoded_address = quote(home_address)
-            tmap_button_url = f"{OPEN_TMAP_BASE_URL}?addr={encoded_address}"
+            if RENDER_SERVICE_URL:
+                # Render를 거쳐서 리다이렉트
+                tmap_button_url = f"{OPEN_TMAP_BASE_URL}?addr={encoded_address}"
+            else:
+                # T-map 웹 URL 직접 사용
+                tmap_button_url = f"{OPEN_TMAP_BASE_URL}?q={encoded_address}"
             buttons.append({
                 "type": "button",
                 "text": {
@@ -661,7 +673,12 @@ def _send_slack_with_tmap(channel: str, text: str, site_addresses=None):
         if len(addresses) == 1:
             # 현장이 1개인 경우
             encoded_address = quote(addresses[0])
-            tmap_button_url = f"{OPEN_TMAP_BASE_URL}?addr={encoded_address}"
+            if RENDER_SERVICE_URL:
+                # Render를 거쳐서 리다이렉트
+                tmap_button_url = f"{OPEN_TMAP_BASE_URL}?addr={encoded_address}"
+            else:
+                # T-map 웹 URL 직접 사용
+                tmap_button_url = f"{OPEN_TMAP_BASE_URL}?q={encoded_address}"
             buttons.append({
                 "type": "button",
                 "text": {
@@ -675,7 +692,12 @@ def _send_slack_with_tmap(channel: str, text: str, site_addresses=None):
             # 현장이 2개 이상인 경우
             for idx, address in enumerate(addresses[:2], 1):  # 최대 2개만
                 encoded_address = quote(address)
-                tmap_button_url = f"{OPEN_TMAP_BASE_URL}?addr={encoded_address}"
+                if RENDER_SERVICE_URL:
+                    # Render를 거쳐서 리다이렉트
+                    tmap_button_url = f"{OPEN_TMAP_BASE_URL}?addr={encoded_address}"
+                else:
+                    # T-map 웹 URL 직접 사용
+                    tmap_button_url = f"{OPEN_TMAP_BASE_URL}?q={encoded_address}"
                 if idx == 1:
                     button_text = "🚩 첫번째 현장 T-map 열기"
                 else:
