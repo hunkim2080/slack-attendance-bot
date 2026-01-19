@@ -175,16 +175,33 @@ def _get_weather_forecast(site_address: str = None):
         # 오후 시간대(12시~18시)의 강수확률과 강수형태 조회
         pop_values = []  # 강수확률 리스트
         pty_values = []  # 강수형태 리스트
-        
-        forecast_date = kst.strftime("%Y%m%d")
+
+        # 예보 대상 날짜 계산
+        # - 새벽(00~06시): 오늘 예보 사용
+        # - 오전~저녁(06~24시): 오늘 예보 사용
+        # 23시 발표 데이터는 다음 날 예보를 포함하므로 날짜 조정 필요
+        if base_time_hour == 23 and current_hour < 6:
+            # 자정~06시에 23시 발표 데이터 사용 시, 예보 날짜는 오늘
+            forecast_date = today
+        else:
+            forecast_date = today
+
+        logging.info(f"예보 대상 날짜: {forecast_date}")
+
+        # 시간대 필터 설정 (새벽에는 오전 예보도 포함)
+        if current_hour < 6:
+            target_times = ["06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18"]
+        else:
+            target_times = ["12", "13", "14", "15", "16", "17", "18"]
+
         for item in items:
             fcst_date = item.get("fcstDate", "")
             fcst_time = item.get("fcstTime", "")
             category = item.get("category", "")
             fcst_value = item.get("fcstValue", "")
-            
-            # 오늘 날짜이고, 오후 시간대(12시~18시)만 필터링
-            if fcst_date == forecast_date and fcst_time[:2] in ["12", "13", "14", "15", "16", "17", "18"]:
+
+            # 예보 날짜와 시간대 필터링
+            if fcst_date == forecast_date and fcst_time[:2] in target_times:
                 if category == "POP":  # 강수확률
                     try:
                         pop_values.append(int(fcst_value))
@@ -212,7 +229,7 @@ def _get_weather_forecast(site_address: str = None):
             # 최대값과 평균 중 더 큰 값 사용 (보수적으로)
             pop = max(avg_pop, max_pop)
         else:
-            logging.warning(f"오후 12~18시 강수확률 데이터 없음 (forecast_date: {forecast_date})")
+            logging.warning(f"예보 데이터 없음 (forecast_date: {forecast_date}, target_times: {target_times})")
             pop = None
         
         # 강수형태 확인 (비가 있는지)
