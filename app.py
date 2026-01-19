@@ -62,6 +62,8 @@ def slack_handler():
                 self.args = flask_request.args
                 # query_string은 bytes이거나 string일 수 있음
                 self.query_string = flask_request.query_string
+                # Slack Bolt adapter가 headers 속성을 요구함
+                self.headers = flask_request.headers
                 
             def get_json(self, silent=False):
                 return self.flask_request.get_json(silent=silent)
