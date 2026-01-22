@@ -50,13 +50,22 @@ SKILL_NAMES = {
 TRANSPORTATION_RATE = 10000
 
 # ----------------------------------------------------
-# 1. Sheets 서비스 생성 (요청 단위로 생성)
+# 1. Sheets 서비스 생성 (싱글톤 패턴으로 재사용)
 # ----------------------------------------------------
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
 
+# 싱글톤 서비스 객체 캐시
+_sheets_service = None
+_drive_service = None
+
 
 def _build_service():
+    """Sheets API 서비스를 싱글톤으로 반환합니다."""
+    global _sheets_service
+    if _sheets_service is not None:
+        return _sheets_service
+
     json_str = os.environ.get("GCF_CREDENTIALS")
     if not json_str:
         raise ValueError("GCF_CREDENTIALS 환경 변수가 설정되지 않았습니다.")
@@ -66,7 +75,8 @@ def _build_service():
         credentials_dict,
         scopes=SCOPES
     )
-    return build("sheets", "v4", credentials=creds, cache_discovery=False)
+    _sheets_service = build("sheets", "v4", credentials=creds, cache_discovery=False)
+    return _sheets_service
 
 
 def execute_with_retry(func, max_retries=3, backoff_factor=1):
@@ -1161,17 +1171,22 @@ def mark_orders_completed(row_indices: List[int]):
 
 
 def _build_drive_service():
-    """Google Drive API 서비스 생성"""
+    """Google Drive API 서비스를 싱글톤으로 반환합니다."""
+    global _drive_service
+    if _drive_service is not None:
+        return _drive_service
+
     json_str = os.environ.get("GCF_CREDENTIALS")
     if not json_str:
         raise ValueError("GCF_CREDENTIALS 환경 변수가 설정되지 않았습니다.")
-    
+
     credentials_dict = json.loads(json_str)
     creds = service_account.Credentials.from_service_account_info(
         credentials_dict,
         scopes=DRIVE_SCOPES
     )
-    return build("drive", "v3", credentials=creds, cache_discovery=False)
+    _drive_service = build("drive", "v3", credentials=creds, cache_discovery=False)
+    return _drive_service
 
 
 def create_site_photo_folder(site_address: str):
@@ -1186,7 +1201,6 @@ def create_site_photo_folder(site_address: str):
     """
     try:
         def _task():
-            service = _build_drive_service()
             service = _build_drive_service()
             now_kst = datetime.now(KST)
             # 폴더명: YYYY.MM.DD 건물명 (점 제거, 공백으로 구분)

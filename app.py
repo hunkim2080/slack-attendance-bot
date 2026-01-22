@@ -127,7 +127,7 @@ def tmap_redirect():
           }}
           setTimeout(function() {{
             window.location.href = "{fallback_web}";
-          }}, 1500);
+          }}, 2500);
         }}
         window.onload = openApp;
       </script>

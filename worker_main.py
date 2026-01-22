@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import concurrent.futures
 from datetime import datetime, timedelta
 from urllib.parse import quote, urlencode
 
@@ -30,6 +31,7 @@ else:
     # T-map 웹 지도 URL 직접 사용
     OPEN_TMAP_BASE_URL = "https://tmapapi.sktelecom.com/main/map.html"
 WEATHER_API_KEY = os.environ.get("WEATHER_API_KEY", "")
+KAKAO_REST_API_KEY = os.environ.get("KAKAO_REST_API_KEY", "")
 
 
 def _address_to_grid(address: str):
@@ -73,6 +75,113 @@ def _address_to_grid(address: str):
     
     # 매칭 실패 시 서울 기본값
     return (60, 127)
+
+
+def _geocode_address_kakao(address: str) -> tuple:
+    """주소 → 좌표 변환 (카카오 로컬 API)
+
+    Args:
+        address: 주소 문자열
+
+    Returns:
+        tuple: (lng, lat) 좌표. 실패 시 (None, None)
+    """
+    if not KAKAO_REST_API_KEY or not address:
+        return None, None
+
+    try:
+        url = "https://dapi.kakao.com/v2/local/search/address.json"
+        headers = {"Authorization": f"KakaoAK {KAKAO_REST_API_KEY}"}
+        response = requests.get(
+            url, headers=headers, params={"query": address}, timeout=3
+        )
+        response.raise_for_status()
+
+        data = response.json()
+        if data.get("documents"):
+            doc = data["documents"][0]
+            return float(doc["x"]), float(doc["y"])  # lng, lat
+
+        # 주소 검색 실패 시 키워드 검색 시도
+        url_keyword = "https://dapi.kakao.com/v2/local/search/keyword.json"
+        response = requests.get(
+            url_keyword, headers=headers, params={"query": address}, timeout=3
+        )
+        response.raise_for_status()
+
+        data = response.json()
+        if data.get("documents"):
+            doc = data["documents"][0]
+            return float(doc["x"]), float(doc["y"])
+
+        return None, None
+    except Exception as e:
+        logging.warning(f"카카오 지오코딩 실패: {e}")
+        return None, None
+
+
+def _get_travel_time(start_addr: str, end_addr: str) -> dict:
+    """두 주소 간 소요시간 계산 (카카오 모빌리티 길찾기 API)
+
+    Args:
+        start_addr: 출발지 주소
+        end_addr: 도착지 주소
+
+    Returns:
+        dict: {"duration": 분, "distance": km, "error": None} 또는 {"error": "메시지"}
+    """
+    if not KAKAO_REST_API_KEY:
+        return {"error": "API 키 미설정"}
+
+    if not start_addr or not end_addr:
+        return {"error": "주소 없음"}
+
+    try:
+        # 1. 주소 → 좌표 변환 (병렬로 처리)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            start_future = executor.submit(_geocode_address_kakao, start_addr)
+            end_future = executor.submit(_geocode_address_kakao, end_addr)
+
+            start_lng, start_lat = start_future.result()
+            end_lng, end_lat = end_future.result()
+
+        if not all([start_lng, start_lat, end_lng, end_lat]):
+            return {"error": "주소 변환 실패"}
+
+        # 2. 카카오 모빌리티 길찾기 API 호출
+        url = "https://apis-navi.kakaomobility.com/v1/directions"
+        headers = {"Authorization": f"KakaoAK {KAKAO_REST_API_KEY}"}
+        params = {
+            "origin": f"{start_lng},{start_lat}",
+            "destination": f"{end_lng},{end_lat}",
+            "priority": "RECOMMEND",  # 추천 경로
+        }
+
+        response = requests.get(url, headers=headers, params=params, timeout=5)
+        response.raise_for_status()
+
+        data = response.json()
+        routes = data.get("routes", [])
+
+        if routes and routes[0].get("result_code") == 0:
+            summary = routes[0].get("summary", {})
+            duration_sec = summary.get("duration", 0)
+            distance_m = summary.get("distance", 0)
+
+            return {
+                "duration": duration_sec // 60,  # 초 → 분
+                "distance": round(distance_m / 1000, 1),  # m → km
+                "error": None,
+            }
+
+        return {"error": "경로 없음"}
+
+    except requests.exceptions.Timeout:
+        logging.warning("카카오 길찾기 API 타임아웃")
+        return {"error": "타임아웃"}
+    except Exception as e:
+        logging.warning(f"카카오 길찾기 API 실패: {e}")
+        return {"error": str(e)}
 
 
 def _get_weather_forecast(site_address: str = None):
@@ -151,7 +260,7 @@ def _get_weather_forecast(site_address: str = None):
             "ny": ny,
         }
         
-        response = requests.get(api_url, params=params, timeout=10)
+        response = requests.get(api_url, params=params, timeout=3)
         logging.info(f"날씨 API 응답 상태: {response.status_code}")
         response.raise_for_status()
 
@@ -368,9 +477,19 @@ def _handle_check_in(user_id: str, user_name: str, channel_id: str):
 
     user_id (Slack_ID)를 우선 사용하여 UserMaster 조회 후,
     한글 이름으로 치환해서 사용한다.
+
+    성능 최적화: 독립적인 작업들을 병렬로 실행합니다.
     """
-    # Slack_ID (user_id)를 우선 사용하여 UserMaster 조회
-    user_info = sheets_handler.get_user_info(user_id) if user_id else None
+    # Phase 1: 사용자 정보와 캘린더 정보를 병렬로 조회
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        user_info_future = executor.submit(
+            lambda: sheets_handler.get_user_info(user_id) if user_id else None
+        )
+        calendar_future = executor.submit(_get_today_site_addresses)
+
+        user_info = user_info_future.result()
+        site_addresses = calendar_future.result()
+
     # Slack_ID로 못 찾으면 user_name(핸들)로 재시도
     if not user_info and user_name:
         user_info = sheets_handler.get_user_info(user_name)
@@ -390,14 +509,13 @@ def _handle_check_in(user_id: str, user_name: str, channel_id: str):
     else:
         display_name = f"<@{user_id}>"
 
-    prev_total_days = sheets_handler.get_total_work_days(name_for_log)
-
-    # 오늘 일정에서 현장 주소 가져오기 (출근 기록에 포함하기 위해 먼저 조회)
-    site_addresses = _get_today_site_addresses()
     # 출근 기록에는 첫 번째 주소만 사용 (기존 호환성 유지)
     site_address = site_addresses[0] if site_addresses else SITE_ADDRESS
 
-    # 출근 기록 (비고란에 현장 주소 포함)
+    # 직원 집 주소 (소요시간 계산용)
+    home_address = user_info.get("address", "") if user_info else ""
+
+    # 출근 기록 (비고란에 현장 주소 포함) - 이건 반드시 먼저 실행
     success, msg = sheets_handler.record_check_in(name_for_log, site_address)
     if not success:
         _send_slack(
@@ -410,32 +528,35 @@ def _handle_check_in(user_id: str, user_name: str, channel_id: str):
     current_year = now.year
     current_month = now.month
 
-    # 출근 기록 후 총 근무일수 계산
-    # 출근은 0.5일의 개념이므로, 출근만 한 상태에서는 완전한 근무일이 아닙니다.
-    # 따라서 get_total_work_days로 조회 (출근+퇴근이 모두 있는 날만 카운트)
-    current_total_days = sheets_handler.get_total_work_days(name_for_log)
+    # Phase 2: 출근 기록 후 필요한 데이터들을 병렬로 조회
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        # 날씨 정보 (가장 오래 걸릴 수 있음)
+        weather_future = executor.submit(_get_weather_forecast, site_address)
+        # 총 근무일수
+        total_days_future = executor.submit(sheets_handler.get_total_work_days, name_for_log)
+        # 이번 달 근무 횟수
+        monthly_count_future = executor.submit(
+            sheets_handler.get_monthly_work_count, name_for_log, current_year, current_month
+        )
+        # 카카오 길찾기 (집 → 현장 소요시간)
+        travel_future = executor.submit(_get_travel_time, home_address, site_address)
+
+        # 결과 수집
+        pop, pty, weather_error = weather_future.result()
+        current_total_days = total_days_future.result()
+        monthly_count = monthly_count_future.result()
+        travel_info = travel_future.result()
+
     current_level = sheets_handler.calculate_level(current_total_days)
-    monthly_count = sheets_handler.get_monthly_work_count(
-        name_for_log, current_year, current_month
-    )
-    
+
     # 출근 시에는 레벨업 체크를 하지 않음 (출근은 0.5일, 퇴근해야 1일 완성)
     # 레벨업 및 각성 단계 체크는 퇴근 시에만 수행
-    
-    # 새로운 정보 조회
+
+    # 새로운 정보 조회 (동기적으로 - 빠른 계산들)
     awakening_emoji, awakening_num = sheets_handler.get_awakening_stage_with_number(current_total_days)
     awakening_stage_text = f"{awakening_emoji} [각성 {awakening_num}단계]" if awakening_num > 0 else "🟤 [초보]"
     user_title = sheets_handler.get_user_title(current_total_days)
     days_until_settlement = sheets_handler.get_days_until_settlement()
-    
-    # 이번 달 총 급여 계산
-    base_pay, _, _ = sheets_handler.calculate_monthly_payroll(name_for_log, current_year, current_month)
-    commission = sheets_handler.get_commission(name_for_log, current_year, current_month)
-    transportation = sheets_handler.calculate_transportation_allowance(monthly_count)
-    monthly_total_pay = base_pay + commission + transportation
-    
-    # 날씨 정보 조회 (첫 번째 현장 주소 기준)
-    pop, pty, weather_error = _get_weather_forecast(site_address)
     
     # 메시지 구성 (새로운 형식)
     parts = [
@@ -458,10 +579,23 @@ def _handle_check_in(user_id: str, user_name: str, channel_id: str):
     else:
         # 날씨 정보를 가져오지 못한 경우
         parts.append("🌤️ 날씨 정보 조회 중...")
-    
+
+    # 소요시간 정보 추가 (카카오 길찾기)
+    if travel_info and not travel_info.get("error"):
+        duration = travel_info["duration"]
+        distance = travel_info["distance"]
+        arrival_time = (now + timedelta(minutes=duration)).strftime("%H:%M")
+
+        parts.append("")
+        parts.append("🚗 현장까지 예상 소요시간")
+        parts.append(f" • 거리: {distance}km")
+        parts.append(f" • 소요: 약 {duration}분")
+        parts.append(f" • 예상 도착: {arrival_time}")
+
+    parts.append("")
     parts.append("──────────────")
     parts.append("")
-    
+
     # 현장 주소 (여러 개인 경우 각각 표시)
     if site_addresses:
         if len(site_addresses) == 1:
@@ -650,7 +784,7 @@ def _send_slack_with_buttons(channel: str, text: str, home_address: str = None):
             "type": "button",
             "text": {
                 "type": "plain_text",
-                "text": "📋 자재사용대장"
+                "text": "📋 자재사용등록[퇴근]"
             },
             "action_id": "open_material_log",
             "value": "start"
@@ -766,7 +900,7 @@ def _send_slack_with_tmap(channel: str, text: str, site_addresses=None):
             "type": "button",
             "text": {
                 "type": "plain_text",
-                "text": "📋 자재사용대장"
+                "text": "📋 자재사용등록[퇴근]"
             },
             "action_id": "open_material_log"
         })
