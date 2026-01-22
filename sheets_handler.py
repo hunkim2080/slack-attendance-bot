@@ -79,11 +79,34 @@ def _build_service():
     return _sheets_service
 
 
+def _reset_sheets_service():
+    """Sheets 서비스 객체를 리셋합니다 (연결 오류 시 호출)."""
+    global _sheets_service
+    _sheets_service = None
+    logging.info("Sheets 서비스 객체 리셋됨")
+
+
+def _reset_drive_service():
+    """Drive 서비스 객체를 리셋합니다 (연결 오류 시 호출)."""
+    global _drive_service
+    _drive_service = None
+    logging.info("Drive 서비스 객체 리셋됨")
+
+
 def execute_with_retry(func, max_retries=3, backoff_factor=1):
-    """재시도 로직이 포함된 함수 실행"""
+    """재시도 로직이 포함된 함수 실행 (연결 오류 시 서비스 리셋)"""
     for attempt in range(max_retries):
         try:
             return func()
+        except (TimeoutError, ConnectionError, OSError) as e:
+            # 연결 관련 오류 시 서비스 객체 리셋
+            _reset_sheets_service()
+            _reset_drive_service()
+            if attempt == max_retries - 1:
+                raise
+            wait_time = backoff_factor * (2 ** attempt)
+            logging.warning(f"연결 오류 (attempt {attempt + 1}): {e}. 서비스 리셋 후 {wait_time}초 대기...")
+            time.sleep(wait_time)
         except Exception as e:
             if attempt == max_retries - 1:
                 raise
