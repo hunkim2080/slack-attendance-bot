@@ -778,29 +778,7 @@ def _send_slack_with_buttons(channel: str, text: str, home_address: str = None):
                 "url": tmap_button_url,
                 "style": "primary"
             })
-        
-        # 2. 자재사용대장 버튼
-        buttons.append({
-            "type": "button",
-            "text": {
-                "type": "plain_text",
-                "text": "📋 자재사용등록[퇴근]"
-            },
-            "action_id": "open_material_log",
-            "value": "start"
-        })
-        
-        # 3. 현장사진 업로드 버튼 (폴더 생성부터 시작)
-        buttons.append({
-            "type": "button",
-            "text": {
-                "type": "plain_text",
-                "text": "📷 현장사진 업로드"
-            },
-            "action_id": "create_photo_folder",
-            "value": "create"
-        })
-        
+
         if buttons:
             blocks.append({
                 "type": "actions",
